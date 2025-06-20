@@ -6,8 +6,9 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const nodemailer = require('nodemailer');
 
+// Перевірка змінних середовища
 if (!process.env.VIBER_AUTH_TOKEN || !process.env.GMAIL_APP_PASSWORD || !process.env.RENDER_EXTERNAL_HOSTNAME) {
-    console.error("❌ Відсутні обов'язкові змінні середовища (VIBER_AUTH_TOKEN або GMAIL_APP_PASSWORD або RENDER_EXTERNAL_HOSTNAME)");
+    console.error("❌ Відсутні обов'язкові змінні середовища (VIBER_AUTH_TOKEN, GMAIL_APP_PASSWORD, RENDER_EXTERNAL_HOSTNAME)");
     process.exit(1);
 }
 
@@ -22,9 +23,9 @@ const bot = new ViberBot({
     avatar: "https://vikno.shop/images/vikno-logo-viber.png"
 });
 
-// Webhook
+// Маршрути
 app.use("/webhook", bot.middleware());
-app.get("/", (req, res) => res.send("VIKNO Viber Bot Active"));
+app.get("/", (req, res) => res.send("✅ VIKNO Viber Bot Active"));
 
 bot.onSubscribe(response => {
     showMainMenu(response);
@@ -43,7 +44,7 @@ function showMainMenu(response) {
     }));
 }
 
-// Підменю розділу
+// Меню розділу
 function showSectionMenu(text, response) {
     response.send(new TextMessage(`Вас цікавить розділ "${text}". Що робимо далі?`, {
         buttons: [
@@ -55,7 +56,7 @@ function showSectionMenu(text, response) {
     }));
 }
 
-// Відправка email
+// Надсилання email
 async function handlePhoneSubmission(phone, userId, response) {
     try {
         const transporter = nodemailer.createTransport({
@@ -90,7 +91,7 @@ bot.on(BotEvents.MESSAGE_RECEIVED, async (message, response) => {
         if (/^\+?\d{9,15}$/.test(text)) {
             await handlePhoneSubmission(text, userId, response);
         } else {
-            response.send(new TextMessage("Будь ласка, введіть коректний номер телефону у форматі +380XXXXXXXXX."));
+            response.send(new TextMessage("❗ Введіть номер у форматі +380XXXXXXXXX"));
         }
         return;
     }
@@ -106,11 +107,11 @@ bot.on(BotEvents.MESSAGE_RECEIVED, async (message, response) => {
             showMainMenu(response);
             break;
         case "ЗАПИСАТИСЬ":
-            response.send(new TextMessage("Натисніть, щоб перейти до чату з консультантом: viber://chat?number=+380678388420"));
+            response.send(new TextMessage("📲 Натисніть, щоб перейти до чату: viber://chat?number=+380678388420"));
             break;
         case "ЗАЛИШИТИ КОНТАКТ":
             awaitingPhone[userId] = true;
-            response.send(new TextMessage("Будь ласка, надішліть ваш номер телефону у форматі +380XXXXXXXXX."));
+            response.send(new TextMessage("📝 Надішліть номер телефону для консультації:"));
             break;
         default:
             showMainMenu(response);
@@ -121,5 +122,8 @@ bot.on(BotEvents.MESSAGE_RECEIVED, async (message, response) => {
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
     console.log(`✅ Бот працює на порту ${port}`);
-    bot.setWebhook(`https://${process.env.RENDER_EXTERNAL_HOSTNAME}/webhook`);
+    const webhookUrl = `https://${process.env.RENDER_EXTERNAL_HOSTNAME}/webhook`;
+    bot.setWebhook(webhookUrl)
+        .then(() => console.log(`✅ Webhook встановлено: ${webhookUrl}`))
+        .catch(err => console.error("❌ Помилка встановлення webhook:", err));
 });
