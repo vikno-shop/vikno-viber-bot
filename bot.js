@@ -1,11 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const nodemailer = require('nodemailer');
 const { Bot, Events, Message } = require('viber-bot');
 
-if (!process.env.VIBER_AUTH_TOKEN || !process.env.GMAIL_APP_PASSWORD || !process.env.RENDER_EXTERNAL_HOSTNAME) {
-    console.error("❌ Відсутні обов'язкові змінні середовища.");
+if (!process.env.VIBER_AUTH_TOKEN || !process.env.RENDER_EXTERNAL_HOSTNAME) {
+    console.error("❌ Відсутні змінні середовища.");
     process.exit(1);
 }
 
@@ -49,32 +48,6 @@ function showSectionMenu(text, response) {
     }));
 }
 
-async function handlePhoneSubmission(phone, userId, response) {
-    try {
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: 'viknoshopping@gmail.com',
-                pass: process.env.GMAIL_APP_PASSWORD
-            }
-        });
-
-        await transporter.sendMail({
-            from: 'viknoshopping@gmail.com',
-            to: 'viknoshopping@gmail.com',
-            subject: 'Новий запит з Viber бота',
-            text: `Користувач надіслав номер: ${phone}`
-        });
-
-        delete awaitingPhone[userId];
-        await response.send(new Message.Text("✅ Дякуємо! Наш консультант скоро зв'яжеться з вами."));
-
-    } catch (err) {
-        console.error("❌ Email помилка:", err);
-        await response.send(new Message.Text("❌ Помилка при відправленні повідомлення. Спробуйте ще раз."));
-    }
-}
-
 bot.on(Events.MESSAGE_RECEIVED, async (message, response) => {
     try {
         const text = message.text.trim();
@@ -82,11 +55,11 @@ bot.on(Events.MESSAGE_RECEIVED, async (message, response) => {
 
         if (awaitingPhone[userId]) {
             if (/^\+?\d{9,15}$/.test(text)) {
-                await handlePhoneSubmission(text, userId, response);
+                delete awaitingPhone[userId];
+                return response.send(new Message.Text("✅ Дякуємо! Ваш номер збережено. Наш консультант скоро зв'яжеться з вами."));
             } else {
-                await response.send(new Message.Text("❗️ Введіть правильний номер у форматі +380XXXXXXXXX."));
+                return response.send(new Message.Text("❗️ Введіть правильний номер у форматі +380XXXXXXXXX."));
             }
-            return;
         }
 
         switch (text) {
@@ -107,15 +80,14 @@ bot.on(Events.MESSAGE_RECEIVED, async (message, response) => {
         }
 
     } catch (err) {
-        console.error("❌ Unhandled бот помилка:", err);
-        await response.send(new Message.Text("⚠️ Виникла внутрішня помилка. Спробуйте пізніше."));
+        console.error("❌ Bot error:", err);
+        await response.send(new Message.Text("⚠️ Виникла помилка. Спробуйте пізніше."));
     }
 });
 
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
     console.log(`✅ Бот запущено на порту ${port}`);
-
     const webhookUrl = `https://${process.env.RENDER_EXTERNAL_HOSTNAME}/webhook`;
     bot.setWebhook(webhookUrl)
         .then(() => console.log(`✅ Webhook встановлено: ${webhookUrl}`))
