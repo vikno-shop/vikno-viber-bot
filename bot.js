@@ -6,6 +6,11 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const nodemailer = require('nodemailer');
 
+if (!process.env.VIBER_AUTH_TOKEN || !process.env.GMAIL_APP_PASSWORD || !process.env.RENDER_EXTERNAL_HOSTNAME) {
+    console.error("❌ Відсутні обов'язкові змінні середовища (VIBER_AUTH_TOKEN або GMAIL_APP_PASSWORD або RENDER_EXTERNAL_HOSTNAME)");
+    process.exit(1);
+}
+
 const app = express();
 app.use(bodyParser.json());
 
@@ -17,6 +22,7 @@ const bot = new ViberBot({
     avatar: "https://vikno.shop/images/vikno-logo-viber.png"
 });
 
+// Webhook
 app.use("/webhook", bot.middleware());
 app.get("/", (req, res) => res.send("VIKNO Viber Bot Active"));
 
@@ -24,7 +30,8 @@ bot.onSubscribe(response => {
     showMainMenu(response);
 });
 
-const showMainMenu = (response) => {
+// Основне меню
+function showMainMenu(response) {
     response.send(new TextMessage("Вітаємо, оберіть, що Вас цікавить:", {
         buttons: [
             { ActionType: "reply", ActionBody: "ВІКНА", Text: "🪟 ВІКНА" },
@@ -34,9 +41,10 @@ const showMainMenu = (response) => {
         ],
         InputFieldState: "hidden"
     }));
-};
+}
 
-const showSectionMenu = (text, response) => {
+// Підменю розділу
+function showSectionMenu(text, response) {
     response.send(new TextMessage(`Вас цікавить розділ "${text}". Що робимо далі?`, {
         buttons: [
             { ActionType: "reply", ActionBody: "ЗАПИСАТИСЬ", Text: "📞 З'єднати з консультантом" },
@@ -45,31 +53,35 @@ const showSectionMenu = (text, response) => {
         ],
         InputFieldState: "hidden"
     }));
-};
-
-async function handlePhoneSubmission(phone, userId, response) {
-    const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: 'viknoshopping@gmail.com',
-            pass: process.env.GMAIL_APP_PASSWORD
-        }
-    });
-
-    await transporter.sendMail({
-        from: 'viknoshopping@gmail.com',
-        to: 'viknoshopping@gmail.com',
-        subject: 'Запит з Viber бота',
-        text: `Новий номер телефону для консультації: ${phone}`
-    }).then(() => {
-        response.send(new TextMessage("✅ Дякуємо! Наш консультант зв'яжеться з вами найближчим часом."));
-        awaitingPhone[userId] = false;
-    }).catch(err => {
-        console.error("Email error:", err);
-        response.send(new TextMessage("❌ Сталася помилка при надсиланні. Спробуйте ще раз."));
-    });
 }
 
+// Відправка email
+async function handlePhoneSubmission(phone, userId, response) {
+    try {
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: 'viknoshopping@gmail.com',
+                pass: process.env.GMAIL_APP_PASSWORD
+            }
+        });
+
+        await transporter.sendMail({
+            from: 'viknoshopping@gmail.com',
+            to: 'viknoshopping@gmail.com',
+            subject: 'Запит з Viber бота',
+            text: `Новий номер телефону для консультації: ${phone}`
+        });
+
+        response.send(new TextMessage("✅ Дякуємо! Наш консультант зв'яжеться з вами найближчим часом."));
+        delete awaitingPhone[userId];
+    } catch (err) {
+        console.error("❌ Email send error:", err);
+        response.send(new TextMessage("❌ Сталася помилка при надсиланні. Спробуйте ще раз."));
+    }
+}
+
+// Головна логіка
 bot.on(BotEvents.MESSAGE_RECEIVED, async (message, response) => {
     const text = message.text.trim();
     const userId = response.userProfile.id;
@@ -105,8 +117,9 @@ bot.on(BotEvents.MESSAGE_RECEIVED, async (message, response) => {
     }
 });
 
+// Запуск сервера
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
-    console.log(`Бот працює на порту ${port}`);
+    console.log(`✅ Бот працює на порту ${port}`);
     bot.setWebhook(`https://${process.env.RENDER_EXTERNAL_HOSTNAME}/webhook`);
 });
