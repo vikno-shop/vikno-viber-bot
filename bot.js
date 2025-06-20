@@ -9,34 +9,44 @@ const nodemailer = require('nodemailer');
 const app = express();
 app.use(bodyParser.json());
 
-// Ініціалізація Viber-бота
+const awaitingPhone = {};
+
 const bot = new ViberBot({
     authToken: process.env.VIBER_AUTH_TOKEN,
     name: "ВІКНО™",
     avatar: "https://vikno.shop/images/vikno-logo-viber.png"
 });
 
-// Маршрут для вебхука
 app.use("/webhook", bot.middleware());
-app.get("/", (req, res) => res.send("VIKNO Viber Bot Active ✅"));
-
-const mainMenuMessage = new TextMessage("Оберіть розділ:", {
-    buttons: [
-        { ActionType: "reply", ActionBody: "ВІКНА", Text: "🪟 ВІКНА" },
-        { ActionType: "reply", ActionBody: "ДВЕРІ", Text: "🚪 ДВЕРІ" },
-        { ActionType: "reply", ActionBody: "БАЛКОНИ", Text: "🏙 БАЛКОНИ" },
-        { ActionType: "reply", ActionBody: "РОЗСУВНІ СИСТЕМИ", Text: "🧩 РОЗСУВНІ СИСТЕМИ" }
-    ],
-    InputFieldState: "hidden"
-});
+app.get("/", (req, res) => res.send("VIKNO Viber Bot Active"));
 
 bot.onSubscribe(response => {
-    response.send(new TextMessage("Вітаємо! Оберіть, що Вас цікавить:", mainMenuMessage.keyboard));
+    showMainMenu(response);
 });
 
-let awaitingPhone = {};
+const showMainMenu = (response) => {
+    response.send(new TextMessage("Вітаємо, оберіть, що Вас цікавить:", {
+        buttons: [
+            { ActionType: "reply", ActionBody: "ВІКНА", Text: "🪟 ВІКНА" },
+            { ActionType: "reply", ActionBody: "ДВЕРІ", Text: "🚪 ДВЕРІ" },
+            { ActionType: "reply", ActionBody: "БАЛКОНИ", Text: "🏙 БАЛКОНИ" },
+            { ActionType: "reply", ActionBody: "РОЗСУВНІ СИСТЕМИ", Text: "🧩 РОЗСУВНІ СИСТЕМИ" }
+        ],
+        InputFieldState: "hidden"
+    }));
+};
 
-// Відправка заявки на пошту
+const showSectionMenu = (text, response) => {
+    response.send(new TextMessage(`Вас цікавить розділ "${text}". Що робимо далі?`, {
+        buttons: [
+            { ActionType: "reply", ActionBody: "ЗАПИСАТИСЬ", Text: "📞 З'єднати з консультантом" },
+            { ActionType: "reply", ActionBody: "ЗАЛИШИТИ КОНТАКТ", Text: "📋 Залишити номер" },
+            { ActionType: "reply", ActionBody: "МЕНЮ", Text: "🔙 Повернутися в меню" }
+        ],
+        InputFieldState: "hidden"
+    }));
+};
+
 async function handlePhoneSubmission(phone, userId, response) {
     const transporter = nodemailer.createTransport({
         service: 'gmail',
@@ -46,32 +56,29 @@ async function handlePhoneSubmission(phone, userId, response) {
         }
     });
 
-    try {
-        await transporter.sendMail({
-            from: 'viknoshopping@gmail.com',
-            to: 'viknoshopping@gmail.com',
-            subject: 'Запит з Viber бота',
-            text: `Новий номер телефону для консультації: ${phone}`
-        });
-
+    await transporter.sendMail({
+        from: 'viknoshopping@gmail.com',
+        to: 'viknoshopping@gmail.com',
+        subject: 'Запит з Viber бота',
+        text: `Новий номер телефону для консультації: ${phone}`
+    }).then(() => {
         response.send(new TextMessage("✅ Дякуємо! Наш консультант зв'яжеться з вами найближчим часом."));
         awaitingPhone[userId] = false;
-    } catch (error) {
-        console.error("Помилка надсилання листа:", error);
-        response.send(new TextMessage("❌ Виникла помилка при надсиланні. Спробуйте пізніше."));
-    }
+    }).catch(err => {
+        console.error("Email error:", err);
+        response.send(new TextMessage("❌ Сталася помилка при надсиланні. Спробуйте ще раз."));
+    });
 }
 
-bot.on(BotEvents.MESSAGE_RECEIVED, (message, response) => {
+bot.on(BotEvents.MESSAGE_RECEIVED, async (message, response) => {
     const text = message.text.trim();
     const userId = response.userProfile.id;
 
-    // Якщо очікуємо номер телефону
     if (awaitingPhone[userId]) {
         if (/^\+?\d{9,15}$/.test(text)) {
-            handlePhoneSubmission(text, userId, response);
+            await handlePhoneSubmission(text, userId, response);
         } else {
-            response.send(new TextMessage("📞 Введіть, будь ласка, коректний номер телефону (наприклад: +380XXXXXXXXX)."));
+            response.send(new TextMessage("Будь ласка, введіть коректний номер телефону у форматі +380XXXXXXXXX."));
         }
         return;
     }
@@ -81,38 +88,25 @@ bot.on(BotEvents.MESSAGE_RECEIVED, (message, response) => {
         case "ДВЕРІ":
         case "БАЛКОНИ":
         case "РОЗСУВНІ СИСТЕМИ":
-            response.send(new TextMessage(`Вас цікавить розділ "${text}". Оберіть дію:`, {
-                buttons: [
-                    { ActionType: "reply", ActionBody: "ЗАПИСАТИСЬ", Text: "📞 З'єднати з консультантом" },
-                    { ActionType: "reply", ActionBody: "КОНСУЛЬТАЦІЯ", Text: "✍️ Безкоштовна консультація" },
-                    { ActionType: "reply", ActionBody: "МЕНЮ", Text: "🔙 Повернутися в меню" }
-                ],
-                InputFieldState: "hidden"
-            }));
+            showSectionMenu(text, response);
             break;
-
-        case "ЗАПИСАТИСЬ":
-            response.send(new TextMessage("Відкрийте чат з консультантом: viber://chat?number=+380678388420"));
-            break;
-
-        case "КОНСУЛЬТАЦІЯ":
-            awaitingPhone[userId] = true;
-            response.send(new TextMessage("✍️ Введіть номер телефону для безкоштовної консультації:"));
-            break;
-
         case "МЕНЮ":
-            response.send(mainMenuMessage);
+            showMainMenu(response);
             break;
-
+        case "ЗАПИСАТИСЬ":
+            response.send(new TextMessage("Натисніть, щоб перейти до чату з консультантом: viber://chat?number=+380678388420"));
+            break;
+        case "ЗАЛИШИТИ КОНТАКТ":
+            awaitingPhone[userId] = true;
+            response.send(new TextMessage("Будь ласка, надішліть ваш номер телефону у форматі +380XXXXXXXXX."));
+            break;
         default:
-            response.send(mainMenuMessage);
-            break;
+            showMainMenu(response);
     }
 });
 
-// Запуск сервера
 const port = process.env.PORT || 10000;
 app.listen(port, () => {
-    console.log(`✅ Бот працює на порту ${port}`);
+    console.log(`Бот працює на порту ${port}`);
     bot.setWebhook(`https://${process.env.RENDER_EXTERNAL_HOSTNAME}/webhook`);
 });
